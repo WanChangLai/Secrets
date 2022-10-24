@@ -10,11 +10,10 @@ const mongoose = require("mongoose");
 const session = require('express-session');
 const passport = require("passport");
 const passportLocalMongoose =require("passport-local-mongoose");
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const findOrCreate = require('mongoose-findorcreate')
 
 const app = express();
-
-//console log the sercet file item API_KEY
-console.log(process.env.API_KEY);
 
 app.use(express.static("public"));
 //set the view engine to ejs
@@ -37,21 +36,57 @@ mongoose.connect('mongodb://localhost:27017/userDB',{useNewUrlParser:true});
 
 const userSchema = new mongoose.Schema({
   email:String,
-  password:String
+  password:String,
+  googleId:String
 });
 
 userSchema.plugin(passportLocalMongoose);
+userSchema.plugin(findOrCreate);
 
 const User = mongoose.model('User', userSchema);
 
 passport.use(User.createStrategy());
 
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
+passport.serializeUser(function(user,done){
+  done(null,user.id);
+});
+
+passport.deserializeUser(function(id,done){
+  User.findById(id,function(err,user){
+    done(err, user);
+  });
+});
+
+//using google strategy passing in clientid and client secret
+passport.use(new GoogleStrategy({
+    clientID: process.env.CLIENT_ID,
+    clientSecret: process.env.CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/google/secrets"
+  },
+  function(accessToken, refreshToken, profile, cb) {
+    console.log(profile);
+    User.findOrCreate({ googleId: profile.id }, function (err, user) {
+      return cb(err, user);
+    });
+  }
+));
 
 app.get("/",function(req,res){
   res.render("home")
 });
+
+// to settle the href in the authenticate using google
+app.get("/auth/google",
+  passport.authenticate('google', { scope: ["profile"] })
+);
+
+//after we login with the google, render to this route
+app.get("/auth/google/secrets",
+  passport.authenticate('google', { failureRedirect: '/login' }),
+  function(req, res) {
+    // Successful authentication, redirect secrets.
+    res.redirect('/secrets');
+  });
 
 app.get("/login",function(req,res){
   res.render("login")
@@ -77,7 +112,7 @@ app.get("/logout",function(req,res){
     }else{
       console.log(err);
     }
-  });  
+  });
 });
 
 
